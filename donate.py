@@ -70,7 +70,11 @@ class DonationAssistant:
                     {"role": "user", "content": user_prompt}
                 ]
             )
-            print("收到 Ollama 回應")
+
+            # 同時輸出到檔案
+            with open('last_response.txt', 'w', encoding='utf-8') as f:
+                f.write(f"問題：{user_input}\n\n")
+                f.write(f"回答：{response['message']['content']}\n")
 
             return {
                 "status": "success",
@@ -78,7 +82,6 @@ class DonationAssistant:
             }
 
         except Exception as e:
-            print(f"查詢發生錯誤: {str(e)}")
             return {
                 "status": "error",
                 "message": f"查詢失敗: {str(e)}"
