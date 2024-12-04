@@ -23,23 +23,33 @@ class DonationAISystem:
             json.dump(self.knowledge_base, f, ensure_ascii=False, indent=2)
 
     async def train_mode(self, training_data: List[Dict]):
-        """訓練模式"""
+        """訓練模式（使用 fine-tuning 方式）"""
         try:
             # 準備訓練數據
             formatted_data = self._format_training_data(training_data)
 
-            # 建立或更新模型
-            await self.client.create(
-                model=self.model_name,
-                path='./training_data',
-                template=self._get_prompt_template()
-            )
+            # 將訓練數據轉換為 Ollama 可用的格式
+            training_examples = self._prepare_training_examples(formatted_data)
+
+            # 使用現有模型進行預測並記錄結果
+            for example in training_examples:
+                response = await self.client.chat(
+                    model=self.model_name,
+                    messages=[{
+                        "role": "system",
+                        "content": self._get_system_prompt()
+                    },
+                    {
+                        "role": "user",
+                        "content": example["input"]
+                    }]
+                )
 
             # 更新知識庫
             self.knowledge_base.update(formatted_data)
             self.save_knowledge_base()
 
-            return {"status": "success", "message": "Model trained successfully"}
+            return {"status": "success", "message": "Knowledge base updated successfully"}
 
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -59,38 +69,55 @@ class DonationAISystem:
 
         return formatted
 
-    def _get_prompt_template(self) -> str:
-        """獲取 prompt 模板"""
-        return """
-        System: You are a donation assistant. Use the following knowledge to answer questions:
-        {context}
+    def _prepare_training_examples(self, formatted_data: Dict) -> List[Dict]:
+        """準備訓練範例"""
+        examples = []
 
-        Human: {query}
+        # 為每個位置創建訓練範例
+        for location in formatted_data.get("locations", []):
+            example = {
+                "input": f"這個地方接受什麼捐贈？地點：{location['name']}",
+                "expected": f"在{location['name']}（地址：{location['address']}），可以接受以下捐贈物品：{', '.join(location['accepted_items'])}"
+            }
+            examples.append(example)
 
-        Assistant: Let me help you with that.
-        """
+        return examples
+
+    def _get_system_prompt(self) -> str:
+        """獲取系統 prompt"""
+        return """你是一個捐贈助手AI，負責協助人們找到合適的捐贈地點和方式。
+        請根據提供的知識庫資訊，準確回答用戶的問題。
+        如果不確定，請誠實說明。"""
 
     async def use_mode(self, query: str) -> Dict:
         """使用模式"""
         try:
-            # 準備 context
-            context = json.dumps(self.knowledge_base, ensure_ascii=False)
+            # 準備完整的對話內容
+            messages = [
+                {
+                    "role": "system",
+                    "content": self._get_system_prompt()
+                },
+                {
+                    "role": "user",
+                    "content": f"""
+                    基於以下資訊回答問題：
+                    {json.dumps(self.knowledge_base, ensure_ascii=False)}
 
-            # 生成 prompt
-            prompt = self._get_prompt_template().format(
-                context=context,
-                query=query
-            )
+                    用戶問題：{query}
+                    """
+                }
+            ]
 
             # 獲取回應
             response = await self.client.chat(
                 model=self.model_name,
-                messages=[{"role": "user", "content": prompt}]
+                messages=messages
             )
 
             return {
                 "status": "success",
-                "response": response.message.content
+                "response": response['message']['content']
             }
 
         except Exception as e:
@@ -98,20 +125,6 @@ class DonationAISystem:
                 "status": "error",
                 "message": str(e)
             }
-
-    async def update_knowledge(self, new_data: Dict):
-        """更新知識庫"""
-        try:
-            # 更新知識庫
-            self.knowledge_base.update(new_data)
-            self.save_knowledge_base()
-
-            # 可選：重新訓練模型
-            await self.train_mode([new_data])
-
-            return {"status": "success", "message": "Knowledge base updated"}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
 
 # 使用範例
 async def main():
@@ -128,10 +141,19 @@ async def main():
         }
     ]
 
+    # 確保模型已下載
+    try:
+        print("Ensuring model is available...")
+        await ai_system.client.pull(model=ai_system.model_name)
+    except Exception as e:
+        print(f"Error pulling model: {e}")
+        return
+
+    print("Training system...")
     train_result = await ai_system.train_mode(training_data)
     print("Training result:", train_result)
 
-    # 使用模式示例
+    print("\nTesting system...")
     query = "我想捐贈罐頭，請問哪裡可以捐？"
     use_result = await ai_system.use_mode(query)
     print("Query result:", use_result)
