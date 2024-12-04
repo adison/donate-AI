@@ -3,7 +3,6 @@ import json
 from typing import Dict, List
 from ollama import Client
 import sys
-import time
 
 class DonationAssistant:
     def __init__(self, model_name: str = "llama2"):
@@ -41,21 +40,35 @@ class DonationAssistant:
         """處理用戶查詢"""
         print(f"處理查詢: {user_input}")
         try:
-            prompt = f"""
-你是一個捐贈諮詢助手。請用繁體中文回答。
+            system_prompt = """你是一個繁體中文的捐贈諮詢助手。
+請嚴格遵守以下規則：
+1. 只使用繁體中文回答
+2. 不要使用英文
+3. 保持簡潔明瞭的回答方式
+4. 確保回答包含具體的地址和聯絡方式
+5. 回答格式應該是：
+   - 捐贈地點：[名稱]
+   - 地址：[地址]
+   - 可接受物品：[列表]
+   - 營業時間：[時間]
+   - 聯絡方式：[電話]
+   - 注意事項：[說明]"""
 
+            user_prompt = f"""
 知識庫資訊：
 {json.dumps(self.knowledge_base, ensure_ascii=False, indent=2)}
 
 用戶問題：{user_input}
+
+請用繁體中文回答上述問題。
 """
             print("發送請求到 Ollama...")
             response = self.client.chat(
                 model=self.model_name,
-                messages=[{
-                    "role": "user",
-                    "content": prompt
-                }]
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
             )
             print("收到 Ollama 回應")
 
@@ -70,13 +83,6 @@ class DonationAssistant:
                 "status": "error",
                 "message": f"查詢失敗: {str(e)}"
             }
-
-def save_knowledge_base(data: Dict):
-    """儲存知識庫"""
-    print("儲存知識庫...")
-    with open('knowledge_base.json', 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    print("知識庫儲存完成")
 
 def main():
     print("程式開始執行...")
@@ -99,8 +105,9 @@ def main():
         ]
     }
 
-    # 儲存範例資料
-    save_knowledge_base(sample_data)
+    # 儲存知識庫
+    with open('knowledge_base.json', 'w', encoding='utf-8') as f:
+        json.dump(sample_data, f, ensure_ascii=False, indent=2)
 
     # 確保模型已下載
     print("檢查模型狀態...")
